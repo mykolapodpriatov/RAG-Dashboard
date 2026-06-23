@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+claudedocs/
+plan.md
