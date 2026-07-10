@@ -6,6 +6,11 @@ __pycache__/
 venv/
 env/
 
+# Tooling caches (kept in sync with .dockerignore)
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 # Secrets / environment
 .env
 *.env
