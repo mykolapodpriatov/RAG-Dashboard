@@ -1,0 +1,19 @@
+[tool.ruff]
+# Match CI (ruff 0.14.14, Python 3.12) — keep the default rule set so a local
+# `ruff check .` behaves exactly like the pipeline.
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Make the repo root importable so tests can `import evaluators` without a
+# package install (they deliberately avoid importing app.py).
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.12"
+# Lenient: streamlit / plotly / pandas ship without complete stubs, and the app
+# is a thin UI layer — we only care that the evaluators type-check cleanly.
+ignore_missing_imports = true
+warn_unused_ignores = false
+warn_return_any = false
