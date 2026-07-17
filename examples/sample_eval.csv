@@ -1,0 +1,6 @@
+question,answer,contexts
+What is the capital of France?,The capital of France is Paris.,"['France is a country in Western Europe.', 'Paris is the capital and largest city of France.']"
+Who wrote Romeo and Juliet?,Romeo and Juliet was written by William Shakespeare.,"['William Shakespeare was an English playwright and poet.', 'Shakespeare wrote Romeo and Juliet around 1595.']"
+What is the boiling point of water?,Water boils at 100 degrees Celsius at sea level.,"['At standard atmospheric pressure water boils at 100 degrees Celsius.', 'The boiling point of a liquid depends on the surrounding pressure.']"
+How many continents are there on Earth?,There are seven continents on Earth.,"['Earth is commonly divided into seven continents.', 'The continents include Asia, Africa, Europe and the Americas.']"
+What language is spoken in Brazil?,Portuguese is the official language of Brazil.,"['Brazil is the largest country in South America.', 'The official language of Brazil is Portuguese.']"

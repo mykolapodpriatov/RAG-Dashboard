@@ -8,6 +8,7 @@ Two backends are available via ``evaluate_dataframe(df, backend=...)``:
 * ``"mock"`` — the legacy reproducible-random placeholder, kept for demos.
 """
 
+import ast
 import random
 import re
 
@@ -32,6 +33,44 @@ def _tokenize(text: object) -> set[str]:
     if text is None:
         return set()
     return set(_TOKEN_RE.findall(str(text).casefold()))
+
+
+def _normalize_contexts(value: object) -> list[str]:
+    """Coerce a ``contexts`` cell into a ``list[str]`` regardless of its source.
+
+    Uploads deliver the same logical data as different Python types, so we
+    normalise them all to a list of strings:
+
+    * ``list`` / ``tuple`` (typical ``pd.read_json`` result) — element-wise
+      ``str`` coercion.
+    * List-literal string (``pd.read_csv`` round-trip, e.g. ``"['a', 'b']"``) —
+      parsed safely with :func:`ast.literal_eval`. A parse failure, or a literal
+      that is not a list/tuple, falls back to treating the whole string as a
+      single context.
+    * ``NaN`` / ``None`` (blank cell) or a blank string — ``[]``.
+    """
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    if value is None:
+        return []
+    # Scalar NaN (a blank CSV cell). ``pd.isna`` on non-scalars can raise or
+    # return an array, hence the guard — lists were already handled above.
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return [text]
+    if isinstance(parsed, (list, tuple)):
+        return [str(item) for item in parsed]
+    return [text]
 
 
 def heuristic_evaluate(
@@ -110,6 +149,9 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
             )
 
     df = df.copy()
+    # Normalise `contexts` up front so CSV (list-literal strings / NaN) and JSON
+    # (native lists) uploads of the same data score identically downstream.
+    df["contexts"] = df["contexts"].apply(_normalize_contexts)
 
     if backend == "mock":
         return _mock_scores(df)
