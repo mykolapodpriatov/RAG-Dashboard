@@ -1,0 +1,42 @@
+[
+  {
+    "question":"What is the capital of France?",
+    "answer":"The capital of France is Paris.",
+    "contexts":[
+      "France is a country in Western Europe.",
+      "Paris is the capital and largest city of France."
+    ]
+  },
+  {
+    "question":"Who wrote Romeo and Juliet?",
+    "answer":"Romeo and Juliet was written by William Shakespeare.",
+    "contexts":[
+      "William Shakespeare was an English playwright and poet.",
+      "Shakespeare wrote Romeo and Juliet around 1595."
+    ]
+  },
+  {
+    "question":"What is the boiling point of water?",
+    "answer":"Water boils at 100 degrees Celsius at sea level.",
+    "contexts":[
+      "At standard atmospheric pressure water boils at 100 degrees Celsius.",
+      "The boiling point of a liquid depends on the surrounding pressure."
+    ]
+  },
+  {
+    "question":"How many continents are there on Earth?",
+    "answer":"There are seven continents on Earth.",
+    "contexts":[
+      "Earth is commonly divided into seven continents.",
+      "The continents include Asia, Africa, Europe and the Americas."
+    ]
+  },
+  {
+    "question":"What language is spoken in Brazil?",
+    "answer":"Portuguese is the official language of Brazil.",
+    "contexts":[
+      "Brazil is the largest country in South America.",
+      "The official language of Brazil is Portuguese."
+    ]
+  }
+]
