@@ -7,7 +7,7 @@ touch ``app.py`` (which would pull in streamlit / plotly).
 import pandas as pd
 import pytest
 
-from evaluators import evaluate_dataframe, heuristic_evaluate
+from evaluators import answer_correctness, evaluate_dataframe, heuristic_evaluate
 
 _METRICS = ("faithfulness", "answer_relevancy", "context_precision")
 
@@ -105,3 +105,58 @@ def test_original_columns_are_preserved():
     result = evaluate_dataframe(df)
     for col in ("question", "answer", "contexts", *_METRICS):
         assert col in result.columns
+
+
+def test_answer_correctness_perfect_match_scores_one():
+    assert answer_correctness("alpha beta gamma", ["alpha beta gamma"]) == 1.0
+
+
+def test_answer_correctness_disjoint_tokens_score_zero():
+    assert answer_correctness("alpha beta", ["completely different words"]) == 0.0
+
+
+def test_answer_correctness_is_bounded_and_partial():
+    # Two of three answer tokens are in the reference: Jaccard = 2/4 = 0.5.
+    score = answer_correctness("alpha beta delta", ["alpha beta gamma"])
+    assert 0.0 <= score <= 1.0
+    assert score == pytest.approx(0.5)
+
+
+def test_answer_correctness_empty_inputs_do_not_divide_by_zero():
+    assert answer_correctness("", []) == 0.0
+    assert answer_correctness("alpha", []) == 0.0
+    assert answer_correctness("", ["alpha"]) == 0.0
+
+
+def test_answer_correctness_normalises_list_literal_ground_truths():
+    # A CSV round-trip surfaces ``ground_truths`` as a list-literal string.
+    assert answer_correctness("alpha beta", "['alpha beta']") == 1.0
+
+
+def test_answer_correctness_column_added_when_ground_truths_present():
+    df = pd.DataFrame(
+        {
+            "question": ["what is x"],
+            "answer": ["alpha beta gamma"],
+            "contexts": [["x is indeed a thing"]],
+            "ground_truths": [["alpha beta gamma"]],
+        }
+    )
+    result = evaluate_dataframe(df)
+    assert "answer_correctness" in result.columns
+    assert result["answer_correctness"].between(0.0, 1.0).all()
+    assert result.loc[0, "answer_correctness"] == 1.0
+
+
+def test_answer_correctness_column_absent_without_ground_truths():
+    df = pd.DataFrame(
+        {
+            "question": ["what is x"],
+            "answer": ["x is a thing"],
+            "contexts": [["x is indeed a thing"]],
+        }
+    )
+    result = evaluate_dataframe(df)
+    assert "answer_correctness" not in result.columns
+    # The three-metric output is unchanged when references are absent.
+    assert list(result.columns) == ["question", "answer", "contexts", *_METRICS]

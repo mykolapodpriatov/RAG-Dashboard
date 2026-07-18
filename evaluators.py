@@ -24,6 +24,11 @@ _MOCK_SEED = 42
 _REQUIRED_COLUMNS = ("question", "answer", "contexts")
 _METRIC_COLUMNS = ("faithfulness", "answer_relevancy", "context_precision")
 
+# Optional reference-based metric: computed per row only when the input carries a
+# ``ground_truths`` column (see :func:`evaluate_dataframe`).
+_GROUND_TRUTHS_COLUMN = "ground_truths"
+_REFERENCE_METRIC_COLUMN = "answer_correctness"
+
 # Unicode-aware word tokenizer: runs of word characters, case-folded.
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
@@ -120,6 +125,30 @@ def heuristic_evaluate(
     }
 
 
+def answer_correctness(answer: object, ground_truths: object) -> float:
+    """Token Jaccard overlap between *answer* and its reference *ground_truths*.
+
+    A deterministic, offline, reference-based proxy for answer correctness. The
+    ``ground_truths`` cell is coerced with :func:`_normalize_contexts` (so a
+    native list, a list-literal string, a bare string or ``NaN`` are all
+    accepted), its tokens are pooled, and the result is the Jaccard similarity
+    of the answer tokens and the pooled reference tokens.
+
+    The score is inherently bounded to ``[0, 1]``. Empty inputs — no answer
+    tokens, no reference tokens, or both — yield ``0.0`` instead of raising
+    ``ZeroDivisionError``.
+    """
+    answer_tokens = _tokenize(answer)
+    reference_tokens: set[str] = set()
+    for reference in _normalize_contexts(ground_truths):
+        reference_tokens |= _tokenize(reference)
+
+    union = answer_tokens | reference_tokens
+    if not union:
+        return 0.0
+    return len(answer_tokens & reference_tokens) / len(union)
+
+
 def _mock_scores(df: pd.DataFrame) -> pd.DataFrame:
     """Legacy reproducible-random placeholder, gated behind ``backend='mock'``."""
     rng = random.Random(_MOCK_SEED)
@@ -139,7 +168,10 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
 
     Returns:
         A copy of *df* with ``faithfulness``, ``answer_relevancy`` and
-        ``context_precision`` columns appended.
+        ``context_precision`` columns appended. When the input carries a
+        ``ground_truths`` column, a deterministic reference-based
+        ``answer_correctness`` column is appended as well; otherwise the
+        three-metric output is unchanged.
     """
     for col in _REQUIRED_COLUMNS:
         if col not in df.columns:
@@ -154,17 +186,25 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
     df["contexts"] = df["contexts"].apply(_normalize_contexts)
 
     if backend == "mock":
-        return _mock_scores(df)
-    if backend != "heuristic":
+        df = _mock_scores(df)
+    elif backend == "heuristic":
+        scores = [
+            heuristic_evaluate(row["question"], row["answer"], row["contexts"])
+            for _, row in df.iterrows()
+        ]
+        scores_df = pd.DataFrame(scores, index=df.index, columns=list(_METRIC_COLUMNS))
+        for col in _METRIC_COLUMNS:
+            df[col] = scores_df[col]
+    else:
         raise ValueError(
             f"Неизвестный backend: {backend!r}. Ожидается 'heuristic' или 'mock'."
         )
 
-    scores = [
-        heuristic_evaluate(row["question"], row["answer"], row["contexts"])
-        for _, row in df.iterrows()
-    ]
-    scores_df = pd.DataFrame(scores, index=df.index, columns=list(_METRIC_COLUMNS))
-    for col in _METRIC_COLUMNS:
-        df[col] = scores_df[col]
+    # Reference-based metric is deterministic and backend-independent; only
+    # emitted when ground-truth references are supplied.
+    if _GROUND_TRUTHS_COLUMN in df.columns:
+        df[_REFERENCE_METRIC_COLUMN] = [
+            answer_correctness(row["answer"], row[_GROUND_TRUTHS_COLUMN])
+            for _, row in df.iterrows()
+        ]
     return df
