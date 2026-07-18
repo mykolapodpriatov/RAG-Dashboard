@@ -47,6 +47,20 @@ scored = evaluate_dataframe(df)                # backend="heuristic" по умо
 print(scored[["faithfulness", "answer_relevancy", "context_precision"]])
 ```
 
+Если во входных данных есть колонка `ground_truths`, дополнительно считается
+референс-метрика `answer_correctness` (token Jaccard между ответом и эталоном).
+
+### Оценка из командной строки (offline, без UI)
+
+Для CI / регрессионных прогонов датасет можно оценить без запуска Streamlit —
+`evaluate_cli.py` печатает среднее по каждой метрике и, при `--out`, сохраняет
+оценённую таблицу в CSV:
+
+```bash
+python evaluate_cli.py examples/sample_eval.csv --out scored.csv
+# опционально: --backend heuristic (по умолчанию) | mock
+```
+
 ## Запуск локально
 ```bash
 pip install -r requirements.txt
