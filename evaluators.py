@@ -208,3 +208,57 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
             for _, row in df.iterrows()
         ]
     return df
+
+
+# All metric columns that may appear on an evaluated dataframe, in the order
+# they should be compared. ``answer_correctness`` is optional (see above).
+_COMPARISON_METRIC_COLUMNS = (*_METRIC_COLUMNS, _REFERENCE_METRIC_COLUMN)
+
+
+def combine_runs(
+    run_a: pd.DataFrame,
+    run_b: pd.DataFrame,
+    label_a: str = "Run A",
+    label_b: str = "Run B",
+) -> pd.DataFrame:
+    """Combine two already-evaluated runs into one long-form table for comparison charts.
+
+    Each input is expected to already carry the metric columns produced by
+    :func:`evaluate_dataframe` (``faithfulness``, ``answer_relevancy``,
+    ``context_precision`` and, optionally, ``answer_correctness``). The two
+    runs are melted independently, so they need neither matching columns nor
+    matching row counts:
+
+    * A metric present in only one run (e.g. ``answer_correctness`` when only
+      one upload supplied ``ground_truths``) simply contributes rows for that
+      run alone — it is never dropped or padded with placeholder values.
+    * Differing row counts never cause a shape mismatch, since each run
+      contributes its own independent set of rows.
+
+    Returns:
+        A dataframe with columns ``run``, ``metric``, ``score`` — one row per
+        (row, metric) pair, labelled by *label_a* / *label_b* — ready for
+        ``plotly.express`` grouped bar/box charts via ``color="run"``.
+    """
+    frames = []
+    for label, df in ((label_a, run_a), (label_b, run_b)):
+        metric_cols = [col for col in _COMPARISON_METRIC_COLUMNS if col in df.columns]
+        melted = df.melt(value_vars=metric_cols, var_name="metric", value_name="score")
+        melted.insert(0, "run", label)
+        frames.append(melted)
+    return pd.concat(frames, ignore_index=True)
+
+
+def run_metric_means(comparison: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate a :func:`combine_runs` table into per-run, per-metric means.
+
+    Args:
+        comparison: The long-form ``run``/``metric``/``score`` output of
+            :func:`combine_runs`.
+
+    Returns:
+        A dataframe with columns ``run``, ``metric``, ``score`` — one row per
+        (run, metric) pair holding the mean score — suitable for a grouped bar
+        chart of run averages.
+    """
+    return comparison.groupby(["run", "metric"], as_index=False)["score"].mean()
