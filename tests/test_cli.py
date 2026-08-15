@@ -134,3 +134,55 @@ def test_cli_compare_asymmetric_answer_correctness(tmp_path, capsys):
     assert cells[3] == "-"
     for col in _METRICS:
         assert col in stdout
+
+
+def test_fail_under_high_threshold_exits_1(capsys):
+    exit_code = main(
+        [str(EXAMPLES / "sample_eval.csv"), "--fail-under", "faithfulness=1.1"]
+    )
+
+    assert exit_code == 1
+    stdout = capsys.readouterr().out
+    assert "FAIL faithfulness" in stdout
+    assert "< 1.10" in stdout
+
+
+def test_fail_under_zero_threshold_exits_0(capsys):
+    exit_code = main(
+        [str(EXAMPLES / "sample_eval.csv"), "--fail-under", "faithfulness=0.0"]
+    )
+
+    assert exit_code == 0
+    assert "FAIL" not in capsys.readouterr().out
+
+
+def test_fail_under_unknown_metric_exits_2(capsys):
+    exit_code = main(
+        [str(EXAMPLES / "sample_eval.csv"), "--fail-under", "not_a_metric=0.5"]
+    )
+
+    assert exit_code == 2
+    stdout = capsys.readouterr().out
+    assert "Unknown metric" in stdout
+    assert "not_a_metric" in stdout
+    for col in _METRICS:
+        assert col in stdout
+    assert "answer_correctness" not in stdout.split("present:", 1)[-1]
+
+
+def test_fail_under_still_writes_out(tmp_path, capsys):
+    out = tmp_path / "scored.csv"
+
+    exit_code = main(
+        [
+            str(EXAMPLES / "sample_eval.csv"),
+            "--fail-under",
+            "faithfulness=1.1",
+            "--out",
+            str(out),
+        ]
+    )
+
+    assert exit_code == 1
+    assert out.exists()
+    assert "Wrote scored table" in capsys.readouterr().out
