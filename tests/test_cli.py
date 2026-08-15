@@ -186,3 +186,48 @@ def test_fail_under_still_writes_out(tmp_path, capsys):
     assert exit_code == 1
     assert out.exists()
     assert "Wrote scored table" in capsys.readouterr().out
+
+
+def _question_lines(stdout: str) -> list[str]:
+    return [line for line in stdout.splitlines() if line.startswith("  ")]
+
+
+def test_worst_1_prints_one_question_per_metric(capsys):
+    exit_code = main([str(EXAMPLES / "sample_eval.csv"), "--worst", "1"])
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    for col in _METRICS:
+        assert f"worst 1 by {col}:" in stdout
+    assert "worst 1 by answer_correctness:" not in stdout
+    assert len(_question_lines(stdout)) == len(_METRICS)
+    for line in _question_lines(stdout):
+        assert "  " in line.strip() or line.strip()[0].isdigit()
+
+
+def test_worst_0_is_silent_besides_means(capsys):
+    exit_code = main([str(EXAMPLES / "sample_eval.csv"), "--worst", "0"])
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    for col in _METRICS:
+        assert f"{col}:" in stdout
+    assert "worst" not in stdout
+    assert _question_lines(stdout) == []
+
+
+def test_worst_prints_even_on_fail_under(capsys):
+    exit_code = main(
+        [
+            str(EXAMPLES / "sample_eval.csv"),
+            "--worst",
+            "1",
+            "--fail-under",
+            "faithfulness=1.1",
+        ]
+    )
+
+    assert exit_code == 1
+    stdout = capsys.readouterr().out
+    assert "FAIL faithfulness" in stdout
+    assert len(_question_lines(stdout)) == len(_METRICS)
