@@ -36,6 +36,7 @@ _METRIC_COLUMNS = (
 _LABEL_A = "Run A"
 _LABEL_B = "Run B"
 _MISSING = "-"
+_QUESTION_MAX = 80
 
 
 def _load_dataframe(path: Path) -> pd.DataFrame:
@@ -100,6 +101,24 @@ def _apply_fail_under(
             print(f"FAIL {name} {value:.2f} < {threshold:.2f}")
             failed = True
     return 1 if failed else 0
+
+
+def _print_worst(scored: pd.DataFrame, n: int) -> None:
+    """Print the *n* lowest-scoring rows per metric. No-op when *n* <= 0."""
+    if n <= 0:
+        return
+    for col in _METRIC_COLUMNS:
+        if col not in scored.columns:
+            continue
+        if scored[col].isna().all():
+            continue
+        print(f"worst {n} by {col}:")
+        worst = scored.nsmallest(n, col, keep="first")
+        for _, row in worst.iterrows():
+            question = str(row["question"]) if "question" in row.index else ""
+            if len(question) > _QUESTION_MAX:
+                question = question[:_QUESTION_MAX]
+            print(f"  {float(row[col]):.4f}  {question}")
 
 
 def _print_comparison(means: pd.DataFrame) -> None:
@@ -171,6 +190,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "Unknown metric names exit 2."
         ),
     )
+    parser.add_argument(
+        "--worst",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Print the N lowest-scoring questions per metric (default: 0, off).",
+    )
     return parser
 
 
@@ -200,6 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.out is not None:
             scored.to_csv(args.out, index=False)
             print(f"Wrote scored table to {args.out}")
+
+    _print_worst(scored, args.worst)
 
     if args.fail_under:
         return _apply_fail_under(means, args.fail_under)
