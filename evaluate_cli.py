@@ -62,6 +62,46 @@ def _fmt_score(value: float | None) -> str:
     return _MISSING if value is None else f"{value:.4f}"
 
 
+def _parse_fail_under(value: str) -> tuple[str, float]:
+    """Parse a ``NAME=VALUE`` gate into ``(metric, threshold)``."""
+    if "=" not in value:
+        raise argparse.ArgumentTypeError(
+            f"expected NAME=VALUE, got {value!r}"
+        )
+    name, raw = value.split("=", 1)
+    name = name.strip()
+    if not name:
+        raise argparse.ArgumentTypeError("metric name must not be empty")
+    try:
+        threshold = float(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"threshold must be a number, got {raw!r}"
+        ) from exc
+    return name, threshold
+
+
+def _apply_fail_under(
+    means: pd.Series,
+    gates: Sequence[tuple[str, float]],
+) -> int:
+    """Return 0, 1 (below threshold), or 2 (unknown metric). Prints FAIL lines."""
+    present = [col for col in _METRIC_COLUMNS if col in means.index]
+    unknown = [name for name, _ in gates if name not in means.index]
+    if unknown:
+        listed = ", ".join(present)
+        names = ", ".join(repr(name) for name in unknown)
+        print(f"Unknown metric {names}; present: {listed}")
+        return 2
+    failed = False
+    for name, threshold in gates:
+        value = float(means[name])
+        if value < threshold:
+            print(f"FAIL {name} {value:.2f} < {threshold:.2f}")
+            failed = True
+    return 1 if failed else 0
+
+
 def _print_comparison(means: pd.DataFrame) -> None:
     """Print per-metric Run A / Run B means and the B − A delta."""
     metrics: list[str] = []
@@ -119,6 +159,18 @@ def _build_parser() -> argparse.ArgumentParser:
             "table; --compare writes the long-form run/metric/score table."
         ),
     )
+    parser.add_argument(
+        "--fail-under",
+        action="append",
+        dest="fail_under",
+        metavar="NAME=VALUE",
+        type=_parse_fail_under,
+        default=None,
+        help=(
+            "Fail (exit 1) when a metric mean is below VALUE. Repeatable. "
+            "Unknown metric names exit 2."
+        ),
+    )
     return parser
 
 
@@ -128,6 +180,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     df = _load_dataframe(args.input)
     scored = evaluate_dataframe(df, backend=args.backend)
+    metric_columns = [col for col in _METRIC_COLUMNS if col in scored.columns]
+    means = scored[metric_columns].mean()
 
     if args.compare is not None:
         scored_b = evaluate_dataframe(
@@ -140,17 +194,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.out is not None:
             comparison.to_csv(args.out, index=False)
             print(f"Wrote comparison table to {args.out}")
-        return 0
+    else:
+        for col in metric_columns:
+            print(f"{col}: {means[col]:.4f}")
+        if args.out is not None:
+            scored.to_csv(args.out, index=False)
+            print(f"Wrote scored table to {args.out}")
 
-    metric_columns = [col for col in _METRIC_COLUMNS if col in scored.columns]
-    means = scored[metric_columns].mean()
-    for col in metric_columns:
-        print(f"{col}: {means[col]:.4f}")
-
-    if args.out is not None:
-        scored.to_csv(args.out, index=False)
-        print(f"Wrote scored table to {args.out}")
-
+    if args.fail_under:
+        return _apply_fail_under(means, args.fail_under)
     return 0
 
 
