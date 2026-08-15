@@ -74,11 +74,15 @@ print(scored[["faithfulness", "answer_relevancy", "context_precision"]])
 
 Для CI / регрессионных прогонов датасет можно оценить без запуска Streamlit —
 `evaluate_cli.py` печатает среднее по каждой метрике и, при `--out`, сохраняет
-оценённую таблицу в CSV:
+оценённую таблицу в CSV. `--compare` оценивает второй набор и печатает
+средние Run A / Run B и дельту (B − A); `--out` в этом режиме пишет
+длинную таблицу `run` / `metric` / `score`:
 
 ```bash
 python evaluate_cli.py examples/sample_eval.csv --out scored.csv
 # опционально: --backend heuristic (по умолчанию) | mock
+
+python evaluate_cli.py examples/sample_eval.csv --compare examples/sample_eval.json --out comparison.csv
 ```
 
 ## Запуск локально
