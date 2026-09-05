@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from evaluators import USING_REAL_EVALUATOR, combine_runs, evaluate_dataframe, run_metric_means
+from evaluators import combine_runs, evaluate_dataframe, get_evaluator, run_metric_means
+
+# The backend the dashboard evaluates with. A single place to change, and the
+# warning below follows whichever one it is rather than a module constant that
+# has to be remembered separately.
+BACKEND = "heuristic"
 
 st.set_page_config(page_title="RAG-Dashboard", layout="wide")
 
@@ -68,9 +73,11 @@ if uploaded_file is not None:
                     # Persist the evaluation result so it survives the
                     # script re-runs that Streamlit triggers on every widget
                     # interaction (e.g. changing the metric selectbox below).
-                    st.session_state['df_evaluated'] = evaluate_dataframe(df)
+                    st.session_state['df_evaluated'] = evaluate_dataframe(df, backend=BACKEND)
                     if compare_df is not None:
-                        st.session_state['compare_df_evaluated'] = evaluate_dataframe(compare_df)
+                        st.session_state['compare_df_evaluated'] = evaluate_dataframe(
+                            compare_df, backend=BACKEND
+                        )
                 except Exception as e:
                     st.exception(e)
 
@@ -83,12 +90,12 @@ if uploaded_file is not None:
 
         if df_evaluated is not None:
             st.success("Оценка завершена!")
-            if not USING_REAL_EVALUATOR:
+            if not get_evaluator(BACKEND).is_real:
                 st.warning(
                     "Внимание: показаны эвристические (offline) оценки на основе "
-                    "лексического пересечения токенов — быстрый детерминированный "
-                    "прокси, а не результат Ragas / Open RAG Eval. Реальная "
-                    "интеграция оценщиков ещё не подключена."
+                    "лексического пересечения токенов: быстрый детерминированный "
+                    "прокси, а не результат реального оценщика. "
+                    f"Активный backend: {BACKEND}."
                 )
             st.dataframe(df_evaluated.head())
 

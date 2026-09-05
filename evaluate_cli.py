@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from evaluators import combine_runs, evaluate_dataframe, run_metric_means
+from evaluators import available_backends, combine_runs, evaluate_dataframe, run_metric_means
 
 # Columns whose per-row means we report. ``answer_correctness`` is optional and
 # only present when the dataset carried a ``ground_truths`` column.
@@ -160,7 +160,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--backend",
         default="heuristic",
-        choices=("heuristic", "mock"),
+        # Read from the registry rather than restated, so a backend registered
+        # by another package is selectable here without editing this file.
+        choices=sorted(available_backends()),
         help="Evaluator backend (default: heuristic).",
     )
     parser.add_argument(

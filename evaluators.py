@@ -1,28 +1,122 @@
-"""Offline, dependency-free evaluators for the RAG dashboard.
+"""Evaluator backends for the RAG dashboard.
 
-Two backends are available via ``evaluate_dataframe(df, backend=...)``:
+Backends are **registered**, not branched on, so a team with its own evaluator
+(or one wanting Ragas) can plug it in without editing this module. Two ship
+here and register themselves at import:
 
 * ``"heuristic"`` (default) — deterministic lexical proxy metrics computed with
   the standard library only. Not a substitute for Ragas / Open RAG Eval, but a
   reproducible, offline signal that actually reacts to the text.
 * ``"mock"`` — the legacy reproducible-random placeholder, kept for demos.
+
+Two rules the registry exists to enforce:
+
+* **An unknown backend name raises**, naming what is registered. A dashboard
+  quietly showing proxy numbers while the user believes they are looking at
+  Ragas is the worst outcome available here.
+* **Every backend returns the same frame contract**: the same metric columns,
+  one row per input row. That is checked in the dispatch rather than trusted to
+  each backend, because the comparison view groups two runs by metric and would
+  otherwise silently compare different things.
+
+Whether the numbers are proxies is a property of the backend that ran, not of
+the process, so it travels on the registration rather than a module constant.
 """
+
+from __future__ import annotations
 
 import ast
 import random
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import pandas as pd
 
-# True once a real Ragas / Open RAG Eval backend is wired in. While False, the
-# UI warns that the displayed metrics are proxy/heuristic scores.
-USING_REAL_EVALUATOR = False
+#: Signature every backend implements: rows in (with ``contexts`` already
+#: normalised), the same rows out plus the metric columns.
+EvaluatorFn = Callable[[pd.DataFrame], pd.DataFrame]
 
 # Fixed seed so the legacy mock scores stay reproducible across runs/demos.
 _MOCK_SEED = 42
 
 _REQUIRED_COLUMNS = ("question", "answer", "contexts")
 _METRIC_COLUMNS = ("faithfulness", "answer_relevancy", "context_precision")
+
+
+@dataclass(frozen=True)
+class Evaluator:
+    """A registered backend.
+
+    Attributes:
+        name: The name callers pass as ``backend=``.
+        fn: Takes the prepared frame, returns it with the metric columns added.
+        is_real: Whether these are real evaluator scores rather than a proxy.
+            The UI warning follows this, so it must describe the backend that
+            actually ran.
+        description: One line, shown by :func:`available_backends`.
+    """
+
+    name: str
+    fn: EvaluatorFn
+    is_real: bool
+    description: str = ""
+
+
+_REGISTRY: dict[str, Evaluator] = {}
+
+
+def register_evaluator(
+    name: str,
+    fn: EvaluatorFn,
+    *,
+    is_real: bool,
+    description: str = "",
+    replace: bool = False,
+) -> None:
+    """Register a backend under ``name``.
+
+    Args:
+        name: The name callers pass as ``backend=``.
+        fn: The evaluator.
+        is_real: Whether it produces real evaluator scores rather than proxies.
+        description: One line for listings.
+        replace: Allow overwriting an existing registration. Off by default so
+            two packages claiming one name is an error rather than whichever
+            imported last silently winning.
+
+    Raises:
+        ValueError: On a blank name, or a duplicate without ``replace``.
+    """
+    if not name.strip():
+        raise ValueError("evaluator name must not be empty")
+    if name in _REGISTRY and not replace:
+        raise ValueError(
+            f"evaluator {name!r} is already registered; pass replace=True to override it"
+        )
+    _REGISTRY[name] = Evaluator(name=name, fn=fn, is_real=is_real, description=description)
+
+
+def get_evaluator(name: str) -> Evaluator:
+    """Look a backend up by name.
+
+    Raises:
+        ValueError: If nothing is registered under ``name``. Never falls back to
+            the heuristic: showing proxy numbers while the caller believes they
+            asked for something else is worse than failing.
+    """
+    try:
+        return _REGISTRY[name]
+    except KeyError:
+        known = ", ".join(sorted(_REGISTRY)) or "(none)"
+        raise ValueError(
+            f"Неизвестный backend: {name!r}. Зарегистрированные: {known}."
+        ) from None
+
+
+def available_backends() -> dict[str, Evaluator]:
+    """Every registered backend, keyed by name."""
+    return dict(_REGISTRY)
 
 # Optional reference-based metric: computed per row only when the input carries a
 # ``ground_truths`` column (see :func:`evaluate_dataframe`).
@@ -158,13 +252,61 @@ def _mock_scores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _heuristic_backend(df: pd.DataFrame) -> pd.DataFrame:
+    """The default backend: deterministic lexical proxy metrics."""
+    scores = [
+        heuristic_evaluate(row["question"], row["answer"], row["contexts"])
+        for _, row in df.iterrows()
+    ]
+    scores_df = pd.DataFrame(scores, index=df.index, columns=list(_METRIC_COLUMNS))
+    for col in _METRIC_COLUMNS:
+        df[col] = scores_df[col]
+    return df
+
+
+register_evaluator(
+    "heuristic",
+    _heuristic_backend,
+    is_real=False,
+    description="Deterministic lexical proxy, offline, no dependencies.",
+)
+register_evaluator(
+    "mock",
+    _mock_scores,
+    is_real=False,
+    description="Reproducible-random placeholder, for demos.",
+)
+
+
+def _check_contract(result: pd.DataFrame, source: pd.DataFrame, backend: str) -> pd.DataFrame:
+    """Enforce the frame contract every backend owes its caller.
+
+    Checked here rather than trusted to each backend: the comparison view
+    groups two runs by metric, so a backend that omits a column or drops rows
+    would make it silently compare different things.
+
+    Raises:
+        ValueError: On a missing metric column or a changed row count.
+    """
+    if not isinstance(result, pd.DataFrame):
+        raise ValueError(f"backend {backend!r} returned {type(result).__name__}, not a DataFrame")
+    if len(result) != len(source):
+        raise ValueError(
+            f"backend {backend!r} returned {len(result)} row(s) for {len(source)} input row(s)"
+        )
+    missing = [col for col in _METRIC_COLUMNS if col not in result.columns]
+    if missing:
+        raise ValueError(f"backend {backend!r} did not produce: {', '.join(missing)}")
+    return result
+
+
 def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataFrame:
     """Evaluate a DataFrame with ``question``/``answer``/``contexts`` columns.
 
     Args:
         df: Input rows. A missing required column raises ``ValueError``.
-        backend: ``"heuristic"`` (default, offline lexical proxy) or ``"mock"``
-            (legacy reproducible-random placeholder).
+        backend: A registered backend name; see :func:`available_backends`.
+            ``"heuristic"`` (offline lexical proxy) is the default.
 
     Returns:
         A copy of *df* with ``faithfulness``, ``answer_relevancy`` and
@@ -172,6 +314,10 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
         ``ground_truths`` column, a deterministic reference-based
         ``answer_correctness`` column is appended as well; otherwise the
         three-metric output is unchanged.
+
+    Raises:
+        ValueError: On a missing required column, an unknown backend, or a
+            backend that broke the frame contract.
     """
     for col in _REQUIRED_COLUMNS:
         if col not in df.columns:
@@ -185,20 +331,8 @@ def evaluate_dataframe(df: pd.DataFrame, backend: str = "heuristic") -> pd.DataF
     # (native lists) uploads of the same data score identically downstream.
     df["contexts"] = df["contexts"].apply(_normalize_contexts)
 
-    if backend == "mock":
-        df = _mock_scores(df)
-    elif backend == "heuristic":
-        scores = [
-            heuristic_evaluate(row["question"], row["answer"], row["contexts"])
-            for _, row in df.iterrows()
-        ]
-        scores_df = pd.DataFrame(scores, index=df.index, columns=list(_METRIC_COLUMNS))
-        for col in _METRIC_COLUMNS:
-            df[col] = scores_df[col]
-    else:
-        raise ValueError(
-            f"Неизвестный backend: {backend!r}. Ожидается 'heuristic' или 'mock'."
-        )
+    evaluator = get_evaluator(backend)
+    df = _check_contract(evaluator.fn(df), df, backend)
 
     # Reference-based metric is deterministic and backend-independent; only
     # emitted when ground-truth references are supplied.
