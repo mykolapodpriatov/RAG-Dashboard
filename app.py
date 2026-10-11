@@ -17,7 +17,9 @@ st.markdown("Панель для оценки и визуализации кач
 def _read_uploaded(uploaded_file) -> pd.DataFrame:
     """Parse an uploaded CSV/JSON file (Streamlit's ``UploadedFile``) into a DataFrame."""
     if uploaded_file.name.lower().endswith('.csv'):
-        return pd.read_csv(uploaded_file)
+        # Same rule as the CLI: a cell whose text is NA or None is an
+        # answer, not a missing value.
+        return pd.read_csv(uploaded_file, keep_default_na=False)
     return pd.read_json(uploaded_file)
 
 

@@ -43,7 +43,10 @@ def _load_dataframe(path: Path) -> pd.DataFrame:
     """Load *path* into a DataFrame, dispatching on the file extension."""
     suffix = path.suffix.lower()
     if suffix == ".csv":
-        return pd.read_csv(path)
+        # "NA", "None", "NULL" and the other default sentinels are answers
+        # in an eval table. Reading them as missing turns the answer into
+        # NaN, and the scorer then grades the word "nan".
+        return pd.read_csv(path, keep_default_na=False)
     if suffix == ".json":
         return pd.read_json(path)
     raise ValueError(

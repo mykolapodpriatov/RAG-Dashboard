@@ -36,6 +36,25 @@ def test_cli_writes_scored_table_and_prints_means(tmp_path, capsys):
         assert col in stdout
 
 
+def test_csv_na_token_is_scored_as_text(tmp_path, capsys):
+    # Pandas would read the answer NA as missing. The context list stays
+    # text, so the row used to be scored as the word "nan" against "NA".
+    path = _write_csv(
+        tmp_path / "na.csv",
+        [{"question": "which code", "answer": "NA", "contexts": "['NA']"}],
+    )
+    out = tmp_path / "scored.csv"
+
+    exit_code = main([str(path), "--out", str(out)])
+
+    assert exit_code == 0
+    scored = pd.read_csv(out, keep_default_na=False)
+    assert scored.loc[0, "answer"] == "NA"
+    assert scored.loc[0, "faithfulness"] == 1.0
+    stdout = capsys.readouterr().out
+    assert "faithfulness" in stdout
+
+
 def test_cli_without_out_only_prints(tmp_path, capsys):
     exit_code = main([str(EXAMPLES / "sample_eval.json")])
 
