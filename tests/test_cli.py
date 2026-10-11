@@ -166,6 +166,22 @@ def test_fail_under_high_threshold_exits_1(capsys):
     assert "< 1.10" in stdout
 
 
+def test_fail_under_compare_gates_the_second_run(tmp_path, capsys):
+    good = tmp_path / "good.csv"
+    bad = tmp_path / "bad.csv"
+    header = "question,answer,contexts\n"
+    good.write_text(header + "q,alpha beta,\"['alpha beta']\"\n")
+    bad.write_text(header + "q,zzzz,\"['alpha beta']\"\n")
+
+    exit_code = main(
+        [str(good), "--compare", str(bad), "--fail-under", "faithfulness=0.5"]
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "FAIL Run B faithfulness" in out
+
+
 def test_fail_under_zero_threshold_exits_0(capsys):
     exit_code = main(
         [str(EXAMPLES / "sample_eval.csv"), "--fail-under", "faithfulness=0.0"]

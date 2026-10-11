@@ -88,6 +88,7 @@ def _parse_fail_under(value: str) -> tuple[str, float]:
 def _apply_fail_under(
     means: pd.Series,
     gates: Sequence[tuple[str, float]],
+    label: str = "",
 ) -> int:
     """Return 0, 1 (below threshold), or 2 (unknown metric). Prints FAIL lines."""
     present = [col for col in _METRIC_COLUMNS if col in means.index]
@@ -101,7 +102,8 @@ def _apply_fail_under(
     for name, threshold in gates:
         value = float(means[name])
         if value < threshold:
-            print(f"FAIL {name} {value:.2f} < {threshold:.2f}")
+            shown = f"{label} {name}" if label else name
+            print(f"FAIL {shown} {value:.2f} < {threshold:.2f}")
             failed = True
     return 1 if failed else 0
 
@@ -235,7 +237,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     _print_worst(scored, args.worst)
 
     if args.fail_under:
-        return _apply_fail_under(means, args.fail_under)
+        code = _apply_fail_under(means, args.fail_under)
+        if args.compare is None:
+            return code
+        # The gate is on the metric, not on which file was positional.
+        # A second run under the threshold has to fail the process too.
+        means_b = scored_b[metric_columns].mean()
+        code_b = _apply_fail_under(means_b, args.fail_under, label=_LABEL_B)
+        if code == 2 or code_b == 2:
+            return 2
+        if code == 1 or code_b == 1:
+            return 1
+        return 0
     return 0
 
 
